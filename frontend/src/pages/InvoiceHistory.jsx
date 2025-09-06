@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { 
@@ -11,7 +11,8 @@ import {
   Clock,
   AlertCircle,
   RefreshCw,
-  FileText
+  FileText,
+  X
 } from 'lucide-react';
 import { invoiceAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -21,32 +22,63 @@ const InvoiceHistory = () => {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Add ref for search input to maintain focus
+  const searchInputRef = useRef(null);
+  const [shouldMaintainFocus, setShouldMaintainFocus] = useState(false);
 
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      if (searchQuery !== debouncedSearchQuery) {
+        setCurrentPage(1);
+        setShouldMaintainFocus(true);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, debouncedSearchQuery]);
+
+  // Maintain focus after re-render
+  useEffect(() => {
+    if (shouldMaintainFocus && searchInputRef.current) {
+      searchInputRef.current.focus();
+      setShouldMaintainFocus(false);
+    }
+  }, [shouldMaintainFocus, invoices]);
+
+  // Load invoices when filters or page changes
   useEffect(() => {
     loadInvoices();
-  }, [currentPage, searchQuery, statusFilter, typeFilter]);
+  }, [currentPage, debouncedSearchQuery, statusFilter, typeFilter]);
 
   const loadInvoices = async () => {
     try {
-      setLoading(true);
+      // Don't set loading to true if user is just typing (to prevent input blur)
+      if (!shouldMaintainFocus) {
+        setLoading(true);
+      }
+      
       const params = {
         page: currentPage,
         limit: 10,
-        search: searchQuery || undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        invoiceType: typeFilter !== 'all' ? typeFilter : undefined,
+        ...(debouncedSearchQuery.trim() && { search: debouncedSearchQuery.trim() }),
+        ...(statusFilter !== 'all' && { status: statusFilter }),
+        ...(typeFilter !== 'all' && { invoiceType: typeFilter })
       };
 
       const response = await invoiceAPI.getInvoices(params);
       
       if (response.data.success) {
         setInvoices(response.data.data);
-        setTotalPages(response.data.pagination.pages);
+        setTotalPages(response.data.pagination?.pages || 1);
       }
     } catch (error) {
       console.error('Error loading invoices:', error);
@@ -61,6 +93,10 @@ const InvoiceHistory = () => {
     await loadInvoices();
     setRefreshing(false);
     toast.success('Invoices refreshed!');
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
   };
 
   const handleMarkPaid = async (invoiceNumber) => {
@@ -97,7 +133,6 @@ const InvoiceHistory = () => {
     try {
       const response = await invoiceAPI.downloadPDF(invoiceNumber);
       
-      // Create blob and download
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -113,6 +148,20 @@ const InvoiceHistory = () => {
       console.error('Error downloading invoice:', error);
       toast.error('Failed to download invoice');
     }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+    setCurrentPage(1);
+  };
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+    setStatusFilter('all');
+    setTypeFilter('all');
+    setCurrentPage(1);
   };
 
   const getStatusIcon = (status) => {
@@ -156,7 +205,7 @@ const InvoiceHistory = () => {
     }
   };
 
-  if (loading && currentPage === 1) {
+  if (loading && currentPage === 1 && !shouldMaintainFocus) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <LoadingSpinner size="xl" message="Loading invoices..." />
@@ -211,12 +260,21 @@ const InvoiceHistory = () => {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
+              ref={searchInputRef}
               type="text"
-              placeholder="Search invoices..."
+              placeholder="Search by client name, invoice number..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              onChange={handleSearchChange}
+              className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
+            {searchQuery && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
           
           {/* Status Filter */}
@@ -224,7 +282,10 @@ const InvoiceHistory = () => {
             <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Status</option>
@@ -238,7 +299,10 @@ const InvoiceHistory = () => {
           <div>
             <select
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+              onChange={(e) => {
+                setTypeFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Types</option>
@@ -251,16 +315,34 @@ const InvoiceHistory = () => {
           
           {/* Clear Filters */}
           <button
-            onClick={() => {
-              setSearchQuery('');
-              setStatusFilter('all');
-              setTypeFilter('all');
-            }}
+            onClick={clearAllFilters}
             className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200"
           >
-            Clear Filters
+            Clear All Filters
           </button>
         </div>
+
+        {/* Active Filters Display */}
+        {(debouncedSearchQuery || statusFilter !== 'all' || typeFilter !== 'all') && (
+          <div className="mt-4 flex items-center space-x-2 text-sm">
+            <span className="text-gray-500">Active filters:</span>
+            {debouncedSearchQuery && (
+              <span className="inline-flex items-center px-2 py-1 bg-primary-100 text-primary-800 rounded-full">
+                Search: "{debouncedSearchQuery}"
+              </span>
+            )}
+            {statusFilter !== 'all' && (
+              <span className="inline-flex items-center px-2 py-1 bg-primary-100 text-primary-800 rounded-full">
+                Status: {statusFilter}
+              </span>
+            )}
+            {typeFilter !== 'all' && (
+              <span className="inline-flex items-center px-2 py-1 bg-primary-100 text-primary-800 rounded-full">
+                Type: {typeFilter}
+              </span>
+            )}
+          </div>
+        )}
       </motion.div>
 
       {/* Invoice List */}
@@ -270,7 +352,14 @@ const InvoiceHistory = () => {
         transition={{ delay: 0.2 }}
         className="card overflow-hidden"
       >
-        {invoices.length > 0 ? (
+        {loading && shouldMaintainFocus ? (
+          <div className="flex items-center justify-center py-4">
+            <div className="flex items-center space-x-2 text-gray-500">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600"></div>
+              <span className="text-sm">Searching...</span>
+            </div>
+          </div>
+        ) : invoices.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -338,7 +427,7 @@ const InvoiceHistory = () => {
                         </div>
                         {invoice.paymentType === 'Initial Payment' && (
                           <div className="text-xs text-gray-500">
-                            Collected: ₹{invoice.collectedAmount.toLocaleString()}
+                            Collected: ₹{invoice.collectedAmount?.toLocaleString() || '0'}
                           </div>
                         )}
                       </div>
@@ -402,7 +491,7 @@ const InvoiceHistory = () => {
             <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No invoices found</h3>
             <p className="text-gray-500 mb-6">
-              {searchQuery || statusFilter !== 'all' || typeFilter !== 'all'
+              {debouncedSearchQuery || statusFilter !== 'all' || typeFilter !== 'all'
                 ? 'Try adjusting your filters to see more results.'
                 : 'Get started by creating your first invoice.'}
             </p>

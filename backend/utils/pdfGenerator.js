@@ -167,16 +167,12 @@ const generateInvoiceHTML = async (invoice) => {
             height: auto;
             display: block;
           }
-          .company-name {
-            font-size: 20px;
+          
+          .company-tagline {
+           font-size: 20px;
             font-weight: bold;
             color: #2E3B82;
             margin-bottom: 3px;
-          }
-          .company-tagline {
-            font-size: 16px;
-            color: #2E3B82;
-            margin-bottom: 10px;
           }
           .company-address {
             font-size: 11px;
@@ -298,7 +294,6 @@ const generateInvoiceHTML = async (invoice) => {
             align-items: flex-end;
           }
           .footer-content {
-            text-align: center;
             flex: 1;
           }
           .footer-signature {
@@ -313,10 +308,9 @@ const generateInvoiceHTML = async (invoice) => {
             margin-left: auto;
           }
           .signature-text {
-            font-size: 12px;
+            font-size: 14px;
             color: #666;
-            font-weight: bold;
-            text-align: center;
+            font-weight: bolder;
           }
           .company-website {
             color: #2E3B82;
@@ -359,7 +353,7 @@ const generateInvoiceHTML = async (invoice) => {
                 `<div class="placeholder-logo">LOGO</div>`
               }
             </div>
-            <div class="company-name">Settlo Academy &</div>
+
             <div class="company-tagline">Settlo Tech Solutions</div>
             <div class="company-address">
               121AkhilPlaza PerunduraiRoadErode<br>

@@ -20,6 +20,7 @@ const CreateInvoice = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
+    invoiceNumber: '',
     invoiceType: 'SA',
     clientName: '',
     clientPhone: '',
@@ -31,7 +32,6 @@ const CreateInvoice = () => {
     items: [
       { description: '', quantity: 1, rate: 0, pendingPayment: 0 }
     ],
-    notes: '',
     taxPercentage: 0
   });
 
@@ -58,6 +58,37 @@ const CreateInvoice = () => {
       }));
     }
   }, [formData.paymentType]);
+
+  // Auto-generate invoice number when invoice type changes
+  useEffect(() => {
+    if (formData.invoiceType) {
+      fetchNextInvoiceNumber(formData.invoiceType);
+    }
+  }, [formData.invoiceType]);
+
+  // Function to fetch next invoice number
+  const fetchNextInvoiceNumber = async (type) => {
+    try {
+      console.log('🔄 Fetching invoice number for type:', type);
+      const response = await invoiceAPI.getNextInvoiceNumber(type);
+      console.log('✅ Invoice number response:', response.data);
+      
+      if (response.data && response.data.success) {
+        setFormData(prev => ({
+          ...prev,
+          invoiceNumber: response.data.invoiceNumber
+        }));
+        console.log('✅ Invoice number set:', response.data.invoiceNumber);
+      } else {
+        console.error('❌ Invalid response:', response.data);
+        toast.error('Failed to generate invoice number');
+      }
+    } catch (error) {
+      console.error('❌ Error generating invoice number:', error);
+      console.error('Response:', error.response?.data);
+      toast.error(`Failed to generate invoice number: ${error.response?.data?.message || error.message}`);
+    }
+  };
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -118,10 +149,14 @@ const CreateInvoice = () => {
     return subtotal + taxAmount;
   };
 
+  // ✅ FIXED: Enhanced handleSubmit with proper error handling and data preparation
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validation
+    console.log('🚀 Starting invoice creation...');
+    console.log('📋 Form data:', formData);
+    
+    // Enhanced Validation
     if (!formData.clientName.trim()) {
       toast.error('Client name is required');
       return;
@@ -137,27 +172,78 @@ const CreateInvoice = () => {
       return;
     }
 
+    if (!formData.invoiceNumber) {
+      toast.error('Invoice number not generated. Please select invoice type again.');
+      return;
+    }
+
+    // Validate items data
+    const hasValidItems = formData.items.every(item => 
+      item.description.trim() && 
+      !isNaN(item.rate) && 
+      item.rate >= 0 && 
+      !isNaN(item.quantity) && 
+      item.quantity > 0
+    );
+
+    if (!hasValidItems) {
+      toast.error('Please ensure all services have valid description, rate, and quantity');
+      return;
+    }
+
+    // Validate calculated amounts
+    const total = calculateTotal();
+    const subtotal = calculateSubtotal();
+    
+    if (isNaN(total) || total <= 0) {
+      toast.error('Invalid total amount. Please check service rates.');
+      return;
+    }
+
     setLoading(true);
     
     try {
-      // Prepare data for API
+      // ✅ FIXED: Prepare data for API (keep dates as strings, not Date objects)
       const invoiceData = {
         ...formData,
-        totalAmount: calculateTotal(),
-        subtotalAmount: calculateSubtotal(),
-        invoiceDate: new Date(formData.invoiceDate),
-        dueDate: formData.dueDate ? new Date(formData.dueDate) : null
+        totalAmount: total,
+        subtotalAmount: subtotal,
+        invoiceDate: formData.invoiceDate, // Keep as string
+        dueDate: formData.dueDate || null  // Keep as string or null
       };
+
+      console.log('📤 Sending to API:', invoiceData);
 
       const response = await invoiceAPI.createInvoice(invoiceData);
       
-      if (response.data.success) {
+      console.log('✅ API Response:', response);
+      
+      if (response.data && response.data.success) {
         toast.success('Invoice created successfully!');
+        console.log('✅ Navigating to invoice:', response.data.data.invoiceNumber);
         navigate(`/invoice/${response.data.data.invoiceNumber}`);
+      } else {
+        throw new Error('API returned success: false');
       }
     } catch (error) {
-      console.error('Error creating invoice:', error);
-      toast.error('Failed to create invoice');
+      console.error('❌ Invoice Creation Error:');
+      console.error('Full error:', error);
+      console.error('Response data:', error.response?.data);
+      console.error('Status code:', error.response?.status);
+      
+      // Specific error handling
+      if (error.response?.status === 400) {
+        const message = error.response.data.message || 'Validation error';
+        toast.error(`Validation Error: ${message}`);
+      } else if (error.response?.status === 500) {
+        toast.error('Server error. Check backend logs.');
+      } else if (error.response?.data?.message?.includes('duplicate') || error.response?.data?.message?.includes('11000')) {
+        toast.error('Invoice number already exists. Please refresh and try again.');
+      } else if (error.code === 'NETWORK_ERROR' || error.message.includes('Network Error')) {
+        toast.error('Cannot connect to backend. Is it running?');
+      } else {
+        toast.error(`Failed to create invoice: ${error.response?.data?.message || error.message}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -165,6 +251,7 @@ const CreateInvoice = () => {
 
   const resetForm = () => {
     setFormData({
+      invoiceNumber: '',
       invoiceType: 'SA',
       clientName: '',
       clientPhone: '',
@@ -176,10 +263,38 @@ const CreateInvoice = () => {
       items: [
         { description: '', quantity: 1, rate: 0, pendingPayment: 0 }
       ],
-      notes: '',
       taxPercentage: 0
     });
     toast.success('Form reset successfully');
+  };
+
+  // ✅ Debug function for testing
+  const testAPICall = async () => {
+    try {
+      console.log('🧪 Testing API with current data...');
+      const testData = {
+        invoiceNumber: formData.invoiceNumber,
+        invoiceType: formData.invoiceType,
+        clientName: formData.clientName || 'Test Client',
+        clientPhone: formData.clientPhone || '1234567890',
+        paymentType: formData.paymentType,
+        invoiceDate: formData.invoiceDate,
+        items: formData.items.length > 0 && formData.items[0].description 
+          ? formData.items 
+          : [{ description: 'Test Service', quantity: 1, rate: 1000 }],
+        totalAmount: calculateTotal() || 1000,
+        subtotalAmount: calculateSubtotal() || 1000,
+        taxPercentage: formData.taxPercentage || 0
+      };
+      
+      console.log('🧪 Test data:', testData);
+      const response = await invoiceAPI.createInvoice(testData);
+      console.log('🧪 Test response:', response);
+      toast.success('✅ Test API call worked!');
+    } catch (error) {
+      console.error('🧪 Test failed:', error);
+      toast.error(`❌ Test API call failed: ${error.response?.data?.message || error.message}`);
+    }
   };
 
   return (
@@ -207,6 +322,21 @@ const CreateInvoice = () => {
         </div>
       </motion.div>
 
+      {/* Debug Button - Remove in production */}
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <h4 className="text-yellow-800 font-medium mb-2">🧪 Debug Panel (Remove in production)</h4>
+        <button 
+          type="button"
+          onClick={testAPICall}
+          className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+        >
+          🧪 Test API Call
+        </button>
+        <p className="text-xs text-yellow-700 mt-1">
+          This button tests the create invoice API with current form data
+        </p>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Invoice Details */}
         <motion.div
@@ -221,6 +351,22 @@ const CreateInvoice = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Invoice Number
+              </label>
+              <input
+                type="text"
+                value={formData.invoiceNumber}
+                placeholder="Auto-generated when type is selected"
+                className="input bg-gray-50"
+                readOnly
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                ✨ Automatically generated when you select invoice type
+              </p>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Invoice Type *
@@ -289,6 +435,22 @@ const CreateInvoice = () => {
                 </div>
               </div>
             )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tax (%)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={formData.taxPercentage}
+                onChange={(e) => handleInputChange('taxPercentage', parseFloat(e.target.value) || 0)}
+                placeholder="Enter tax percentage"
+                className="input"
+              />
+            </div>
           </div>
           
           {/* Status Preview */}
@@ -514,50 +676,6 @@ const CreateInvoice = () => {
               </motion.div>
             ))}
           </div>
-        </motion.div>
-
-        {/* Additional Details */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="card p-6"
-        >
-          <div className="flex items-center space-x-2 mb-6">
-            <Settings className="w-5 h-5 text-primary-600" />
-            <h3 className="text-lg font-semibold text-gray-900">Additional Details</h3>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tax (%)
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={formData.taxPercentage}
-                onChange={(e) => handleInputChange('taxPercentage', parseFloat(e.target.value) || 0)}
-                placeholder="Enter tax percentage"
-                className="input"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Notes
-              </label>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => handleInputChange('notes', e.target.value)}
-                placeholder="Enter additional notes"
-                rows={3}
-                className="input"
-              />
-            </div>
-          </div>
           
           {/* Invoice Summary */}
           <div className="mt-6 p-4 bg-gradient-to-r from-primary-50 to-primary-100 rounded-lg">
@@ -601,7 +719,7 @@ const CreateInvoice = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
+          transition={{ delay: 0.4 }}
           className="flex justify-end space-x-4"
         >
           <button

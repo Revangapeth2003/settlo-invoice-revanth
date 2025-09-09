@@ -3,6 +3,52 @@ const router = express.Router();
 const Invoice = require('../models/Invoice');
 const { generateInvoicePDF } = require('../utils/pdfGenerator');
 
+// ✅ NEW: Get next invoice number for specific type
+router.get('/next-number/:invoiceType', async (req, res) => {
+  try {
+    const { invoiceType } = req.params;
+    
+    // Validate invoice type
+    const validTypes = ['SA', 'SHR', 'STS', 'SDE'];
+    if (!validTypes.includes(invoiceType)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid invoice type' 
+      });
+    }
+
+    // Find the latest invoice for this type
+    const latestInvoice = await Invoice.findOne({ invoiceType })
+      .sort({ createdAt: -1 });
+    
+    let nextNumber = 1;
+    if (latestInvoice && latestInvoice.invoiceNumber) {
+      // Extract number from existing invoice (e.g., "SA-001" -> 1)
+      const currentNumber = parseInt(latestInvoice.invoiceNumber.split('-')[1]);
+      nextNumber = currentNumber + 1;
+    }
+    
+    // Generate new invoice number: SA-001, SHR-002, etc.
+    const newInvoiceNumber = `${invoiceType}-${String(nextNumber).padStart(3, '0')}`;
+    
+    res.json({
+      success: true,
+      invoiceNumber: newInvoiceNumber,
+      data: {
+        invoiceType,
+        nextSequence: nextNumber,
+        lastInvoiceNumber: latestInvoice?.invoiceNumber || 'None'
+      }
+    });
+  } catch (error) {
+    console.error('Error generating invoice number:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
 // Get all invoices with filtering
 router.get('/', async (req, res) => {
   try {

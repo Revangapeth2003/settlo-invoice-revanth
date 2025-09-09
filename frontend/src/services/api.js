@@ -1,87 +1,78 @@
 import axios from 'axios';
-import toast from 'react-hot-toast';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: 'http://localhost:5000/api',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
-  },
+  }
 });
 
-// Request interceptor
+// Request interceptor for debugging
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    console.log('🚀 API Request:', config.method?.toUpperCase(), config.url);
     return config;
+  }
+);
+
+// Response interceptor for debugging
+api.interceptors.response.use(
+  (response) => {
+    console.log('✅ API Response:', response.status, response.data);
+    return response;
   },
   (error) => {
+    console.error('❌ API Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }
 );
 
-// Response interceptor
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    const message = error.response?.data?.message || 'An error occurred';
-    
-    if (error.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      window.location.href = '/login';
-    } else if (error.response?.status >= 500) {
-      toast.error('Server error. Please try again later.');
-    } else if (error.code === 'ECONNABORTED') {
-      toast.error('Request timeout. Please try again.');
-    } else {
-      toast.error(message);
-    }
-    
-    return Promise.reject(error);
-  }
-);
-
-// Invoice API methods
 export const invoiceAPI = {
-  // Get all invoices
-  getInvoices: (params = {}) => 
-    api.get('/invoices', { params }),
+  getInvoices: (params = {}) => {
+    return api.get('/invoices', { params });
+  },
 
-  // Get single invoice
-  getInvoice: (invoiceNumber) => 
-    api.get(`/invoices/${invoiceNumber}`),
+  getAllInvoices: (params = {}) => {
+    return api.get('/invoices', { params });
+  },
 
-  // Create invoice
-  createInvoice: (data) => 
-    api.post('/invoices', data),
+  // ✅ ADDED: Missing analytics method
+  getAnalytics: (period = 'monthly') => {
+    return api.get('/invoices/analytics/dashboard', { 
+      params: { period } 
+    });
+  },
 
-  // Update invoice
-  updateInvoice: (invoiceNumber, data) => 
-    api.put(`/invoices/${invoiceNumber}`, data),
+  getNextInvoiceNumber: (invoiceType) => {
+    return api.get(`/invoices/next-number/${invoiceType}`);
+  },
 
-  // Mark invoice as paid
-  markInvoiceAsPaid: (invoiceNumber) => 
-    api.patch(`/invoices/${invoiceNumber}/mark-paid`),
+  createInvoice: (data) => {
+    return api.post('/invoices', data);
+  },
 
-  // Delete invoice
-  deleteInvoice: (invoiceNumber) => 
-    api.delete(`/invoices/${invoiceNumber}`),
+  getInvoice: (invoiceNumber) => {
+    return api.get(`/invoices/${invoiceNumber}`);
+  },
 
-  // Get analytics
-  getAnalytics: (period = 'monthly') => 
-    api.get('/invoices/analytics/dashboard', { params: { period } }),
+  updateInvoice: (invoiceNumber, data) => {
+    return api.put(`/invoices/${invoiceNumber}`, data);
+  },
 
-  // Download PDF
-  downloadPDF: (invoiceNumber) => 
-    api.get(`/invoices/${invoiceNumber}/pdf`, { 
+  markInvoiceAsPaid: (invoiceNumber) => {
+    return api.patch(`/invoices/${invoiceNumber}/mark-paid`);
+  },
+
+  deleteInvoice: (invoiceNumber) => {
+    return api.delete(`/invoices/${invoiceNumber}`);
+  },
+
+  downloadPDF: (invoiceNumber) => {
+    return api.get(`/invoices/${invoiceNumber}/pdf`, {
       responseType: 'blob'
-    }),
+    });
+  }
 };
 
 export default api;

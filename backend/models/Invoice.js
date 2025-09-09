@@ -137,7 +137,7 @@ InvoiceSchema.pre('save', function(next) {
     } else {
       this.status = 'Pending';
     }
-  }
+  }  // ✅ FIXED: Removed the "S"
   next();
 });
 
